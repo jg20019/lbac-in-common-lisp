@@ -1,5 +1,8 @@
 (in-package #:lbac)
 
+;; Keep debugger from optimizing out informtaion such as local variables
+(declaim (optimize (speed 0) (space 0) (debug 3)))
+
 (defun get-char (&optional (s *standard-input*)) 
   "Read and return a single char form *standard-input*
    When end of file is reached return nil."
@@ -56,9 +59,22 @@
   "Parse and translate a factor." 
   (cond ((char= lparen look) 
          (match (expression (match look lparen)) rparen))
-        (t (multiple-value-bind (num l) (get-num look)
+        ((is-alpha look) 
+         (ident look))
+        (t (multiple-value-bind (num look) (get-num look)
              (emitLn (format nil "MOVE #~a, D0" num))
-             l))))
+             look))))
+
+(defun ident (look)
+  "Parse and translate an identifier." 
+  (multiple-value-bind (name look) (get-name look)
+    (if (and look (char= lparen look))
+      (let ((look (match (match look lparen) rparen)))
+        (emitLn (format nil "BSR ~a" name))
+        look)
+      (progn 
+        (emitLn (format nil "MOVE ~a(PC), D0" name))
+        look))))
 
 (defun multiply (look) 
   "Recognize and translate a multiply." 
@@ -130,6 +146,14 @@
          (add-op* look))
         (t (add-op* (term look)))))
 
+(defun assignment (look)
+  "Parse and translate an assignment statement."
+  (multiple-value-bind (name look) (get-name look)
+    (let ((look (expression (match look #\=))))
+      (emitLn (format nil "LEA ~a (PC),A0" name))
+      (emitLn "MOVE D0,(A0)")
+      look)))
+   
 (defun init ()
   "Initialize."
   (get-char))
@@ -137,8 +161,14 @@
 (defun main (&optional (input nil))
   "Main program" 
   (with-input-from-string (*standard-input* (or input (read-line)))
-    (let ((look (init)))
-      (expression look))))
+    (let ((look (assignment (init))))
+      (when (or (null look) (not (char= look #\Newline)))
+        (expected "newline")))))
+      
+#+nil 
+(progn 
+  (main "a=1+3
+        "))
 
 ;; Notes: 
 ;; make-string-input-stream 
